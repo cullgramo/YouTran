@@ -129,3 +129,13 @@ def test_mcp_tools(fake_youtube, tmp_path, monkeypatch):
     assert md.startswith("---") and m.read_transcript(VID) == md
     assert m.list_transcripts()[0]["video_id"] == VID
     assert m.search_transcripts("llamas")[0]["hits"]
+
+
+def test_ip_block_is_friendly(fake_youtube, monkeypatch):
+    import requests
+
+    def blocked(self, vid):
+        raise requests.exceptions.ProxyError("https://www.google.com/sorry/index?continue=...")
+    monkeypatch.setattr(core.YouTubeTranscriptApi, "list", blocked)
+    with pytest.raises(core.TranscriptError, match="blocking requests from this IP"):
+        core.fetch_transcript(VID)
