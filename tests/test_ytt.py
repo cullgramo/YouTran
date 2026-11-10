@@ -129,3 +129,74 @@ def test_mcp_tools(fake_youtube, tmp_path, monkeypatch):
     assert md.startswith("---") and m.read_transcript(VID) == md
     assert m.list_transcripts()[0]["video_id"] == VID
     assert m.search_transcripts("llamas")[0]["hits"]
+
+
+PL = "PLFs4vir_WsTwEd-nJgVJCZPNL3HALHHpF"
+VIDS = [VID, "aaaaaaaaaaa", "bbbbbbbbbbb"]
+
+
+@pytest.mark.parametrize("value, include_watch, expected", [
+    (f"https://www.youtube.com/playlist?list={PL}", False, PL),
+    (f"youtube.com/playlist?list={PL}&si=x", False, PL),
+    (f"https://music.youtube.com/playlist?list={PL}", False, PL),
+    (f"https://www.youtube.com/watch?v={VID}&list={PL}", False, None),  # just the video by default
+    (f"https://www.youtube.com/watch?v={VID}&list={PL}", True, PL),
+    (f"https://youtu.be/{VID}?list={PL}", True, PL),
+    (f"https://youtu.be/{VID}", True, None),
+    (f"https://vimeo.com/playlist?list={PL}", True, None),
+])
+def test_playlist_id(value, include_watch, expected):
+    assert core.playlist_id(value, include_watch) == expected
+
+
+@pytest.fixture
+def fake_playlist(monkeypatch):
+    calls = []
+
+    def fake(value, proxy=None):
+        calls.append(value)
+        if "BAD" in value:
+            raise core.TranscriptError("Could not read playlist BAD")
+        return "My list", VIDS
+
+    monkeypatch.setattr(core, "playlist_videos", fake)
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+    return calls
+
+
+def test_cli_playlist(fake_youtube, fake_playlist, tmp_path, capsys):
+    cli.main(["--dir", str(tmp_path), "get", VID])  # one already saved
+    capsys.readouterr()
+    assert cli.main(["--dir", str(tmp_path), "get", f"https://www.youtube.com/playlist?list={PL}"]) == 0
+    out, err = capsys.readouterr()
+    assert "My list: 3 videos" in err and "2 saved, 1 already saved, 0 failed" in err
+    assert {m["video_id"] for m in core.list_saved(tmp_path)} == set(VIDS)
+
+
+def test_cli_watch_link_needs_flag(fake_youtube, fake_playlist, tmp_path):
+    link = f"https://www.youtube.com/watch?v={VID}&list={PL}"
+    cli.main(["--dir", str(tmp_path), "get", link])
+    assert fake_playlist == [] and len(core.list_saved(tmp_path)) == 1
+    cli.main(["--dir", str(tmp_path), "get", "-p", link])
+    assert fake_playlist == [link] and len(core.list_saved(tmp_path)) == 3
+
+
+def test_cli_bad_playlist(fake_youtube, fake_playlist, tmp_path, capsys):
+    assert cli.main(["--dir", str(tmp_path), "get", "https://www.youtube.com/playlist?list=BAD"]) == 1
+    assert "FAIL" in capsys.readouterr().err
+
+
+def test_mcp_get_playlist(fake_youtube, fake_playlist, tmp_path, monkeypatch):
+    from ytt import mcp_server as m
+    monkeypatch.setenv("YTT_DIR", str(tmp_path))
+    monkeypatch.setattr(m.time, "sleep", lambda s: None)
+    m.get_transcript(VID)
+    res = m.get_playlist(PL, max_videos=2)
+    assert res["playlist"] == "My list" and res["total_videos"] == 3 and res["fetched"] == 2
+    assert [v["status"] for v in res["videos"]] == ["already_saved", "saved"]
+    assert res["videos"][1]["words"] == 202 and m.read_transcript("aaaaaaaaaaa")
+
+
+def test_cli_playlist_limit(fake_youtube, fake_playlist, tmp_path, capsys):
+    cli.main(["--dir", str(tmp_path), "get", "--limit", "2", f"https://www.youtube.com/playlist?list={PL}"])
+    assert "taking the first 2" in capsys.readouterr().err and len(core.list_saved(tmp_path)) == 2
