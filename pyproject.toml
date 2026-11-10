@@ -1,0 +1,21 @@
+[project]
+name = "ytt"
+version = "0.1.0"
+description = "Download YouTube transcripts into a Markdown library that you and Claude can read, search and process."
+requires-python = ">=3.10"
+dependencies = ["youtube-transcript-api>=1.2,<2", "requests>=2"]
+
+[project.optional-dependencies]
+mcp = ["mcp>=2,<3"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+ytt = "ytt.cli:main"
+ytt-mcp = "ytt.mcp_server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["ytt"]
