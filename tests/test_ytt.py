@@ -106,6 +106,22 @@ def test_disabled_reports_failure(fake_youtube, tmp_path, capsys):
     assert "FAIL" in capsys.readouterr().err
 
 
+def test_stdout_prints_saved_copy(fake_youtube, tmp_path, capsys):
+    cli.main(["--dir", str(tmp_path), "get", VID])
+    capsys.readouterr()
+    fake_youtube["disabled"] = True  # must not hit YouTube again
+    assert cli.main(["--dir", str(tmp_path), "get", VID, "--stdout"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("---") and "skip" not in out
+
+
+def test_lang_before_url(fake_youtube, tmp_path):
+    fake_youtube["codes"] = ["en", "de"]
+    assert cli.main(["--dir", str(tmp_path), "get", "-l", "de", "en", f"https://youtu.be/{VID}"]) == 0
+    meta = core.list_saved(tmp_path)[0]
+    assert meta["video_id"] == VID and meta["language_code"] == "de"
+
+
 def test_mcp_tools(fake_youtube, tmp_path, monkeypatch):
     from ytt import mcp_server as m
     monkeypatch.setenv("YTT_DIR", str(tmp_path))

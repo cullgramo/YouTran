@@ -9,7 +9,21 @@ import time
 from . import core
 
 
+def _split_langs(args) -> None:
+    """`-l` takes several values, so `ytt get -l de URL` puts the URL into args.lang.
+    Move anything that parses as a video back into args.videos (language codes never do)."""
+    langs = []
+    for value in args.lang:
+        try:
+            core.parse_video_id(value)
+            args.videos.append(value)
+        except core.TranscriptError:
+            langs.append(value)
+    args.lang = langs or ["en"]
+
+
 def _read_inputs(args) -> list[str]:
+    _split_langs(args)
     videos = list(args.videos)
     if args.file:
         with open(args.file, encoding="utf-8") as f:
@@ -30,6 +44,9 @@ def cmd_get(args) -> int:
         try:
             if not args.force:
                 existing = core.find(directory, video)
+                if existing and args.stdout:
+                    print(existing.read_text(encoding="utf-8"))  # print the saved copy
+                    continue
                 if existing:
                     print(f"skip  {existing}  (already saved; --force to re-fetch)")
                     continue
