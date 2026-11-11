@@ -200,3 +200,12 @@ def test_mcp_get_playlist(fake_youtube, fake_playlist, tmp_path, monkeypatch):
 def test_cli_playlist_limit(fake_youtube, fake_playlist, tmp_path, capsys):
     cli.main(["--dir", str(tmp_path), "get", "--limit", "2", f"https://www.youtube.com/playlist?list={PL}"])
     assert "taking the first 2" in capsys.readouterr().err and len(core.list_saved(tmp_path)) == 2
+
+def test_ip_block_is_friendly(fake_youtube, monkeypatch):
+    import requests
+
+    def blocked(self, vid):
+        raise requests.exceptions.ProxyError("https://www.google.com/sorry/index?continue=...")
+    monkeypatch.setattr(core.YouTubeTranscriptApi, "list", blocked)
+    with pytest.raises(core.TranscriptError, match="blocking requests from this IP"):
+        core.fetch_transcript(VID)

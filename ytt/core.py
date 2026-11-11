@@ -159,6 +159,12 @@ def fetch_transcript(video: str, languages: list[str] | None = None, proxy: str 
         raise TranscriptError(str(e).strip().split("\n\n")[0] if str(e).strip() else repr(e)) from e
     except StopIteration:
         raise TranscriptError(f"No transcripts available for {video_id}") from None
+    except requests.RequestException as e:
+        if "/sorry/" in str(e):
+            raise TranscriptError(
+                "YouTube is blocking requests from this IP address (common for cloud servers). "
+                "Run from a home connection or pass --proxy / set $YTT_PROXY.") from e
+        raise TranscriptError(f"Network error talking to YouTube: {e}") from e
 
     meta = fetch_metadata(video_id)
     return Transcript(
