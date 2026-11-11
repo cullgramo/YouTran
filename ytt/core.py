@@ -52,6 +52,41 @@ def parse_video_id(value: str) -> str:
     raise TranscriptError(f"Not a recognisable YouTube video URL or ID: {value!r}")
 
 
+def playlist_id(value: str, include_watch: bool = False) -> str | None:
+    """Return the playlist ID if `value` is a YouTube playlist link, else None.
+    `/playlist?list=...` always counts. A `watch?v=...&list=...` link (a video opened from a
+    playlist) only counts when include_watch is true, since it usually means just that video."""
+    value = value.strip()
+    url = urlparse(value if "://" in value else "https://" + value)
+    host = (url.hostname or "").lower().removeprefix("www.").removeprefix("m.").removeprefix("music.")
+    if not (host.endswith("youtube.com") or host == "youtu.be"):
+        return None
+    list_id = parse_qs(url.query).get("list", [None])[0]
+    if not list_id or not re.fullmatch(r"[A-Za-z0-9_-]{2,}", list_id):
+        return None
+    return list_id if url.path == "/playlist" or include_watch else None
+
+
+def playlist_videos(value: str, proxy: str | None = None) -> tuple[str, list[str]]:
+    """Return (playlist title, [video IDs]) for a playlist link or ID, using yt-dlp's
+    metadata-only listing (no video is downloaded)."""
+    import yt_dlp  # imported lazily: only needed for playlists
+
+    list_id = playlist_id(value, include_watch=True) or value.strip()
+    opts = {"extract_flat": "in_playlist", "quiet": True, "no_warnings": True, "skip_download": True}
+    if proxy := proxy or os.environ.get("YTT_PROXY"):
+        opts["proxy"] = proxy
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/playlist?list={list_id}", download=False)
+    except yt_dlp.utils.DownloadError as e:
+        raise TranscriptError(f"Could not read playlist {list_id}: {str(e).removeprefix('ERROR: ')}") from e
+    ids = [e["id"] for e in info.get("entries") or [] if e and _ID_RE.match(e.get("id") or "")]
+    if not ids:
+        raise TranscriptError(f"Playlist {list_id} has no videos (or is private).")
+    return info.get("title") or list_id, list(dict.fromkeys(ids))
+
+
 def video_url(video_id: str, seconds: float | None = None) -> str:
     url = f"https://www.youtube.com/watch?v={video_id}"
     return f"{url}&t={int(seconds)}s" if seconds else url

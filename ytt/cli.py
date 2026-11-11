@@ -14,6 +14,9 @@ def _split_langs(args) -> None:
     Move anything that parses as a video back into args.videos (language codes never do)."""
     langs = []
     for value in args.lang:
+        if core.playlist_id(value, include_watch=True):
+            args.videos.append(value)
+            continue
         try:
             core.parse_video_id(value)
             args.videos.append(value)
@@ -33,13 +36,35 @@ def _read_inputs(args) -> list[str]:
     return videos
 
 
+def _expand_playlists(videos: list[str], args) -> tuple[list[str], int]:
+    """Replace playlist links with their videos. Returns (videos, number of playlists that failed)."""
+    out, failures = [], 0
+    for value in videos:
+        if not core.playlist_id(value, include_watch=args.playlist):
+            out.append(value)
+            continue
+        try:
+            title, ids = core.playlist_videos(value, args.proxy)
+            if args.limit and len(ids) > args.limit:
+                print(f"list  {title}: {len(ids)} videos (taking the first {args.limit})", file=sys.stderr)
+                ids = ids[: args.limit]
+            else:
+                print(f"list  {title}: {len(ids)} videos", file=sys.stderr)
+            out += ids
+        except core.TranscriptError as e:
+            failures += 1
+            print(f"FAIL  {value}: {e}", file=sys.stderr)
+    return list(dict.fromkeys(out)), failures
+
+
 def cmd_get(args) -> int:
     directory = core.library_dir(args.dir)
-    videos = _read_inputs(args)
+    videos, failures = _expand_playlists(_read_inputs(args), args)
     if not videos:
-        print("Give at least one video URL or ID (or -f FILE).", file=sys.stderr)
-        return 2
-    failures = 0
+        if not failures:
+            print("Give at least one video or playlist URL (or -f FILE).", file=sys.stderr)
+        return 1 if failures else 2
+    counts = {"saved": 0, "skipped": 0}
     for i, video in enumerate(videos):
         try:
             if not args.force:
@@ -48,20 +73,25 @@ def cmd_get(args) -> int:
                     print(existing.read_text(encoding="utf-8"))  # print the saved copy
                     continue
                 if existing:
-                    print(f"skip  {existing}  (already saved; --force to re-fetch)")
+                    counts["skipped"] += 1
+                    print(f"skip  {existing}  (already saved; --force to re-fetch)", flush=True)
                     continue
             t = core.fetch_transcript(video, args.lang, args.proxy, any_language=not args.strict)
             if args.stdout:
                 print(core.to_markdown(t, args.paragraph))
             else:
                 path = core.save(t, directory, args.paragraph, args.json)
+                counts["saved"] += 1
                 kind = "auto" if t.auto_generated else "manual"
-                print(f"saved {path}  [{t.language_code}, {kind}, {core._ts(t.duration)}]")
+                print(f"saved {path}  [{t.language_code}, {kind}, {core._ts(t.duration)}]", flush=True)
         except core.TranscriptError as e:
             failures += 1
             print(f"FAIL  {video}: {e}", file=sys.stderr)
         if i < len(videos) - 1:
             time.sleep(args.delay)  # be gentle; YouTube rate-limits bursts
+    if len(videos) > 1 and not args.stdout:
+        print(f"done  {counts['saved']} saved, {counts['skipped']} already saved, {failures} failed",
+              file=sys.stderr)
     return 1 if failures else 0
 
 
@@ -106,7 +136,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     g = sub.add_parser("get", help="fetch transcripts for one or more videos")
-    g.add_argument("videos", nargs="*", help="YouTube URLs or 11-character video IDs")
+    g.add_argument("videos", nargs="*", help="YouTube video or playlist URLs, or 11-character video IDs")
+    g.add_argument("-p", "--playlist", action="store_true",
+                   help="for watch?v=...&list=... links, fetch the whole playlist instead of just that video")
+    g.add_argument("--limit", type=int, help="fetch at most N videos from each playlist")
     g.add_argument("-f", "--file", help="text file with one URL/ID per line (# comments ok)")
     g.add_argument("-l", "--lang", nargs="+", default=["en"], help="preferred language codes, in order (default: en)")
     g.add_argument("--strict", action="store_true", help="fail instead of falling back to another language")

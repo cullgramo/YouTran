@@ -29,6 +29,9 @@ pip install -e ".[mcp]"        # or: pipx install -e ".[mcp]"
 ```bash
 ytt get https://youtu.be/VIDEO_ID another_id      # fetch & save (skips ones already saved)
 ytt get -f urls.txt                               # one URL per line
+ytt get "https://www.youtube.com/playlist?list=PL..."   # every video in a playlist
+ytt get -p "https://www.youtube.com/watch?v=ID&list=PL..."  # whole playlist from a video link
+ytt get --limit 10 PLAYLIST_URL                   # just the first 10
 ytt get URL -l de en                              # prefer German, then English
 ytt get URL --stdout | pbcopy                     # don't save, just print
 ytt list                                          # what's in the library
@@ -39,13 +42,18 @@ ytt show VIDEO_ID --plain                         # text only, for piping elsewh
 If no transcript exists in the requested languages, it falls back to any available language
 (use `--strict` to fail instead). Manual captions are preferred over auto-generated ones.
 
+Playlist links (`/playlist?list=...`) are expanded into their videos using `yt-dlp` (metadata
+only, nothing is downloaded). A `watch?v=...&list=...` link fetches just that video unless you add `-p`.
+Videos already in the library are skipped, so re-running a playlist only fetches new ones.
+
 ## Let Claude use it
 
 **Option 1: just files.** Point Claude Code at the library folder (`cd ~/youtube-transcripts && claude`,
 or `/add-dir ~/youtube-transcripts`) and ask it to read, summarise or compare transcripts.
 
-**Option 2: MCP server.** Claude gets `get_transcript`, `list_transcripts`,
-`search_transcripts` and `read_transcript` tools, so you can say "summarise this video: <url>".
+**Option 2: MCP server.** Claude gets `get_transcript`, `get_playlist`, `list_transcripts`,
+`search_transcripts` and `read_transcript` tools, so you can say "summarise this video: <url>"
+or "summarise each video in this playlist: <url>".
 
 Claude Code:
 ```bash
